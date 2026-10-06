@@ -1426,6 +1426,17 @@ func (a *TransactionsApi) TransactionModifyHandler(c *core.WebContext) (any, *er
 		newTransaction.GeoLatitude = transactionModifyReq.GeoLocation.Latitude
 	}
 
+	// Mark the base version that client submitted data based on (for conflict response)
+	if transactionModifyReq.Version != nil {
+		newTransaction.Version = *transactionModifyReq.Version
+	}
+
+	// Return conflict data if current transaction has been modified by another operation after client loaded it
+	if transactionModifyReq.Version != nil && transaction.Version != *transactionModifyReq.Version {
+		log.Warnf(c, "[transactions.TransactionModifyHandler] transaction \"id:%d\" version conflict, client loaded version is %d, but current version is %d", transactionModifyReq.Id, *transactionModifyReq.Version, transaction.Version)
+		return nil, a.getTransactionModifyConflictError(c, user, clientTimezone, transactionModifyReq.Id, newTransaction, tagIds, pictureIds)
+	}
+
 	if newTransaction.Type == transaction.Type &&
 		newTransaction.CategoryId == transaction.CategoryId &&
 		utils.GetUnixTimeFromTransactionTime(newTransaction.TransactionTime) == utils.GetUnixTimeFromTransactionTime(transaction.TransactionTime) &&
@@ -1504,9 +1515,14 @@ func (a *TransactionsApi) TransactionModifyHandler(c *core.WebContext) (any, *er
 		}
 	}
 
-	err = a.transactions.ModifyTransaction(c, newTransaction, changeToTransfer, len(transactionTagIds), addTransactionTagIds, removeTransactionTagIds, addTransactionPictureIds, removeTransactionPictureIds)
+	err = a.transactions.ModifyTransaction(c, newTransaction, transactionModifyReq.Version, changeToTransfer, len(transactionTagIds), addTransactionTagIds, removeTransactionTagIds, addTransactionPictureIds, removeTransactionPictureIds)
 
 	if err != nil {
+		if customErr, ok := err.(*errs.Error); ok && customErr.Code() == errs.ErrTransactionVersionConflict.Code() {
+			log.Warnf(c, "[transactions.TransactionModifyHandler] transaction \"id:%d\" version conflict when updating for user \"uid:%d\", because %s", transactionModifyReq.Id, uid, err.Error())
+			return nil, a.getTransactionModifyConflictError(c, user, clientTimezone, transactionModifyReq.Id, newTransaction, tagIds, pictureIds)
+		}
+
 		log.Errorf(c, "[transactions.TransactionModifyHandler] failed to update transaction \"id:%d\" for user \"uid:%d\", because %s", transactionModifyReq.Id, uid, err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
@@ -1517,6 +1533,118 @@ func (a *TransactionsApi) TransactionModifyHandler(c *core.WebContext) (any, *er
 	newTransactionResp.Pictures = a.GetTransactionPictureInfoResponseList(newPictureInfos)
 
 	return newTransactionResp, nil
+}
+
+// getTransactionModifyConflictError returns a version conflict error with both server-side current transaction and client submitted transaction
+func (a *TransactionsApi) getTransactionModifyConflictError(c *core.WebContext, user *models.User, clientTimezone *time.Location, transactionId int64, submittedTransaction *models.Transaction, submittedTagIds []int64, submittedPictureIds []int64) *errs.Error {
+	uid := user.Uid
+
+	// Get and verify current transaction
+	currentTransaction, err := a.transactions.GetTransactionByTransactionId(c, uid, transactionId)
+
+	if err != nil {
+		log.Errorf(c, "[transactions.getTransactionModifyConflictError] failed to get current transaction \"id:%d\" for user \"uid:%d\", because %s", transactionId, uid, err.Error())
+		return errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	if currentTransaction.Type == models.TRANSACTION_DB_TYPE_TRANSFER_IN {
+		currentTransaction = a.transactions.GetRelatedTransferTransaction(currentTransaction)
+	}
+
+	// Get current transaction tag ids
+	allCurrentTransactionTagIds, err := a.transactionTags.GetAllTagIdsOfTransactions(c, uid, []int64{currentTransaction.TransactionId})
+
+	if err != nil {
+		log.Errorf(c, "[transactions.getTransactionModifyConflictError] failed to get current transaction tag ids for user \"uid:%d\", because %s", uid, err.Error())
+		return errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	currentTransactionTagIds := allCurrentTransactionTagIds[currentTransaction.TransactionId]
+
+	// Get current transaction picture infos
+	currentPictureInfos, err := a.transactionPictures.GetPictureInfosByTransactionId(c, uid, currentTransaction.TransactionId)
+
+	if err != nil {
+		log.Errorf(c, "[transactions.getTransactionModifyConflictError] failed to get current transaction pictures for user \"uid:%d\", because %s", uid, err.Error())
+		return errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	// Assemble submitted transaction picture infos
+	submittedPictureInfos, submitPictureErr := a.getSubmittedTransactionPictureInfos(c, uid, currentPictureInfos, submittedPictureIds)
+
+	if submitPictureErr != nil {
+		return submitPictureErr
+	}
+
+	// Get all used accounts
+	allUsedAccounts, err := a.getTransactionUsedAccounts(c, uid, []*models.Transaction{currentTransaction, submittedTransaction})
+
+	if err != nil {
+		return errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	currentTransactionEditable := currentTransaction.IsEditable(user, clientTimezone, allUsedAccounts[currentTransaction.AccountId], allUsedAccounts[currentTransaction.RelatedAccountId])
+	submittedTransactionEditable := submittedTransaction.IsEditable(user, clientTimezone, allUsedAccounts[submittedTransaction.AccountId], allUsedAccounts[submittedTransaction.RelatedAccountId])
+
+	currentTransactionResp := currentTransaction.ToTransactionInfoResponse(currentTransactionTagIds, currentTransactionEditable)
+	currentTransactionResp.Pictures = a.GetTransactionPictureInfoResponseList(currentPictureInfos)
+	submittedTransactionResp := submittedTransaction.ToTransactionInfoResponse(submittedTagIds, submittedTransactionEditable)
+	submittedTransactionResp.Pictures = a.GetTransactionPictureInfoResponseList(submittedPictureInfos)
+
+	conflictResp := &models.TransactionModifyConflictResponse{
+		CurrentTransaction:   currentTransactionResp,
+		SubmittedTransaction: submittedTransactionResp,
+	}
+
+	return errs.NewErrorWithContext(errs.ErrTransactionVersionConflict, conflictResp)
+}
+
+// getSubmittedTransactionPictureInfos returns the submitted picture infos by current picture infos and newly uploaded picture ids
+func (a *TransactionsApi) getSubmittedTransactionPictureInfos(c *core.WebContext, uid int64, currentPictureInfos []*models.TransactionPictureInfo, submittedPictureIds []int64) ([]*models.TransactionPictureInfo, *errs.Error) {
+	currentPictureInfoMap := a.transactionPictures.GetPictureInfoMapByList(currentPictureInfos)
+	addPictureIds := make([]int64, 0)
+
+	for i := 0; i < len(submittedPictureIds); i++ {
+		if _, exists := currentPictureInfoMap[submittedPictureIds[i]]; !exists {
+			addPictureIds = append(addPictureIds, submittedPictureIds[i])
+		}
+	}
+
+	addPictureInfosMap := make(map[int64]*models.TransactionPictureInfo)
+	uniqueAddPictureIds := utils.ToUniqueInt64Slice(addPictureIds)
+
+	if len(uniqueAddPictureIds) > 0 {
+		addPictureInfos, err := a.transactionPictures.GetNewPictureInfosByPictureIds(c, uid, uniqueAddPictureIds)
+
+		if err != nil {
+			log.Errorf(c, "[transactions.getSubmittedTransactionPictureInfos] failed to get newly uploaded pictures for user \"uid:%d\", because %s", uid, err.Error())
+			return nil, errs.Or(err, errs.ErrOperationFailed)
+		}
+
+		if len(addPictureInfos) != len(uniqueAddPictureIds) {
+			log.Errorf(c, "[transactions.getSubmittedTransactionPictureInfos] some pictures \"ids:%s\" do not exist for user \"uid:%d\"", strings.Join(utils.Int64ArrayToStringArray(utils.Int64SliceMinus(uniqueAddPictureIds, a.transactionPictures.GetTransactionPictureIds(addPictureInfos))), ","), uid)
+			return nil, errs.ErrTransactionPictureNotFound
+		}
+
+		for i := 0; i < len(addPictureInfos); i++ {
+			addPictureInfosMap[addPictureInfos[i].PictureId] = addPictureInfos[i]
+		}
+	}
+
+	submittedPictureInfos := make([]*models.TransactionPictureInfo, 0, len(submittedPictureIds))
+
+	for i := 0; i < len(submittedPictureIds); i++ {
+		if pictureInfo, exists := currentPictureInfoMap[submittedPictureIds[i]]; exists {
+			submittedPictureInfos = append(submittedPictureInfos, pictureInfo)
+		} else if pictureInfo, exists := addPictureInfosMap[submittedPictureIds[i]]; exists {
+			submittedPictureInfos = append(submittedPictureInfos, pictureInfo)
+		} else {
+			log.Errorf(c, "[transactions.getSubmittedTransactionPictureInfos] picture \"id:%d\" does not exist for user \"uid:%d\"", submittedPictureIds[i], uid)
+			return nil, errs.ErrTransactionPictureNotFound
+		}
+	}
+
+	return submittedPictureInfos, nil
 }
 
 // TransactionBatchUpdateCategoriesHandler batch updates categories of transactions by request parameters for current user
@@ -1768,7 +1896,7 @@ func (a *TransactionsApi) TransactionBatchUpdateAccountsHandler(c *core.WebConte
 			continue
 		}
 
-		err = a.transactions.ModifyTransaction(c, transaction, false, 0, nil, nil, nil, nil)
+		err = a.transactions.ModifyTransaction(c, transaction, nil, false, 0, nil, nil, nil, nil)
 
 		if err != nil {
 			log.Errorf(c, "[transactions.TransactionBatchUpdateAccountsHandler] failed to update transaction \"id:%d\" for user \"uid:%d\", because %s", transaction.TransactionId, uid, err.Error())

@@ -282,6 +282,7 @@ func (s *AccountService) CreateAccounts(c core.Context, mainAccount *models.Acco
 				TransactionId:        transactionId,
 				Uid:                  allAccounts[i].Uid,
 				Deleted:              false,
+				Version:              1,
 				Type:                 models.TRANSACTION_DB_TYPE_MODIFY_BALANCE,
 				TransactionTime:      transactionTime,
 				TimezoneUtcOffset:    transactionUtcOffset,

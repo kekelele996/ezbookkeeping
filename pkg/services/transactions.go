@@ -953,7 +953,7 @@ func (s *TransactionService) CreateScheduledTransactions(c core.Context, current
 }
 
 // ModifyTransaction saves an existed transaction to database
-func (s *TransactionService) ModifyTransaction(c core.Context, transaction *models.Transaction, changeToTransfer bool, currentTagIdsCount int, addTagIds []int64, removeTagIds []int64, addPictureIds []int64, removePictureIds []int64) error {
+func (s *TransactionService) ModifyTransaction(c core.Context, transaction *models.Transaction, expectedVersion *int64, changeToTransfer bool, currentTagIdsCount int, addTagIds []int64, removeTagIds []int64, addPictureIds []int64, removePictureIds []int64) error {
 	if transaction.Uid <= 0 {
 		return errs.ErrUserIdInvalid
 	}
@@ -1031,6 +1031,16 @@ func (s *TransactionService) ModifyTransaction(c core.Context, transaction *mode
 		if transaction.Type == models.TRANSACTION_DB_TYPE_MODIFY_BALANCE && oldTransaction.Type != models.TRANSACTION_DB_TYPE_MODIFY_BALANCE {
 			return errs.ErrTransactionTypeInvalid
 		}
+
+		// Verify whether current transaction has been modified by another operation
+		if expectedVersion != nil && oldTransaction.Version != *expectedVersion {
+			log.Warnf(c, "[transactions.ModifyTransaction] transaction \"id:%d\" version conflict, client expected version is %d, but current version is %d", transaction.TransactionId, *expectedVersion, oldTransaction.Version)
+			return errs.ErrTransactionVersionConflict
+		}
+
+		// Increase transaction version
+		transaction.Version = oldTransaction.Version + 1
+		updateCols = append(updateCols, "version")
 
 		if transaction.Type == models.TRANSACTION_DB_TYPE_TRANSFER_OUT && oldTransaction.Type == models.TRANSACTION_DB_TYPE_TRANSFER_OUT {
 			transaction.RelatedId = oldTransaction.RelatedId
@@ -1210,12 +1220,23 @@ func (s *TransactionService) ModifyTransaction(c core.Context, transaction *mode
 		}
 
 		// Update transaction row
-		updatedRows, err := sess.ID(transaction.TransactionId).Cols(updateCols...).Where("uid=? AND deleted=?", transaction.Uid, false).Update(transaction)
+		updateTransactionSession := sess.ID(transaction.TransactionId).Cols(updateCols...).Where("uid=? AND deleted=?", transaction.Uid, false)
+
+		if expectedVersion != nil {
+			updateTransactionSession = updateTransactionSession.And("version=?", *expectedVersion)
+		}
+
+		updatedRows, err := updateTransactionSession.Update(transaction)
 
 		if err != nil {
 			log.Errorf(c, "[transactions.ModifyTransaction] failed to update transaction, because %s", err.Error())
 			return err
 		} else if updatedRows < 1 {
+			if expectedVersion != nil {
+				log.Warnf(c, "[transactions.ModifyTransaction] transaction \"id:%d\" version conflict when updating, client expected version is %d", transaction.TransactionId, *expectedVersion)
+				return errs.ErrTransactionVersionConflict
+			}
+
 			return errs.ErrTransactionNotFound
 		}
 
@@ -2277,6 +2298,7 @@ func (s *TransactionService) GetRelatedTransferTransaction(originalTransaction *
 		TransactionId:        originalTransaction.RelatedId,
 		Uid:                  originalTransaction.Uid,
 		Deleted:              originalTransaction.Deleted,
+		Version:              originalTransaction.Version,
 		Type:                 relatedType,
 		CategoryId:           originalTransaction.CategoryId,
 		TransactionTime:      relatedTransactionTime,
@@ -2704,6 +2726,11 @@ func (s *TransactionService) GetTransactionIds(transactions []*models.Transactio
 }
 
 func (s *TransactionService) doCreateTransaction(c core.Context, database *datastore.Database, sess *xorm.Session, transaction *models.Transaction, transactionTagIndexes []*models.TransactionTagIndex, tagIds []int64, pictureIds []int64, pictureUpdateModel *models.TransactionPictureInfo) error {
+	// Initialize transaction version
+	if transaction.Version < 1 {
+		transaction.Version = 1
+	}
+
 	// Get and verify source and destination account
 	sourceAccount, destinationAccount, err := s.getAccountModels(sess, transaction)
 

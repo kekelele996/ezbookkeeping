@@ -128,6 +128,7 @@ type Transaction struct {
 	TransactionId        int64             `xorm:"PK"`
 	Uid                  int64             `xorm:"UNIQUE(UQE_transaction_uid_time) INDEX(IDX_transaction_uid_deleted_time) INDEX(IDX_transaction_uid_deleted_type_time) INDEX(IDX_transaction_uid_deleted_type_account_id_time) INDEX(IDX_transaction_uid_deleted_category_id_time) INDEX(IDX_transaction_uid_deleted_account_id_time) INDEX(IDX_transaction_uid_deleted_time_longitude_latitude) NOT NULL"`
 	Deleted              bool              `xorm:"INDEX(IDX_transaction_uid_deleted_time) INDEX(IDX_transaction_uid_deleted_type_time) INDEX(IDX_transaction_uid_deleted_type_account_id_time) INDEX(IDX_transaction_uid_deleted_category_id_time) INDEX(IDX_transaction_uid_deleted_account_id_time) INDEX(IDX_transaction_uid_deleted_time_longitude_latitude) NOT NULL"`
+	Version              int64             `xorm:"NOT NULL"`
 	Type                 TransactionDbType `xorm:"INDEX(IDX_transaction_uid_deleted_type_time) INDEX(IDX_transaction_uid_deleted_type_account_id_time) NOT NULL"`
 	CategoryId           int64             `xorm:"INDEX(IDX_transaction_uid_deleted_category_id_time) NOT NULL"`
 	AccountId            int64             `xorm:"INDEX(IDX_transaction_uid_deleted_account_id_time) INDEX(IDX_transaction_uid_deleted_type_account_id_time) NOT NULL"`
@@ -182,6 +183,7 @@ type TransactionCreateRequest struct {
 // TransactionModifyRequest represents all parameters of transaction modification request
 type TransactionModifyRequest struct {
 	Id                   int64                          `json:"id,string" binding:"required,min=1"`
+	Version              *int64                         `json:"version,string"`
 	Type                 TransactionType                `json:"type" binding:"required"`
 	CategoryId           int64                          `json:"categoryId,string"`
 	Time                 int64                          `json:"time" binding:"required,min=1"`
@@ -411,6 +413,7 @@ type TransactionGeoLocationResponse struct {
 // TransactionInfoResponse represents a view-object of transaction
 type TransactionInfoResponse struct {
 	Id                   int64                                    `json:"id,string"`
+	Version              int64                                    `json:"version,string"`
 	TimeSequenceId       int64                                    `json:"timeSequenceId,string"`
 	Type                 TransactionType                          `json:"type"`
 	CategoryId           int64                                    `json:"categoryId,string"`
@@ -430,6 +433,12 @@ type TransactionInfoResponse struct {
 	Comment              string                                   `json:"comment"`
 	GeoLocation          *TransactionGeoLocationResponse          `json:"geoLocation,omitempty"`
 	Editable             bool                                     `json:"editable"`
+}
+
+// TransactionModifyConflictResponse represents both server-side current data and client submitted data when transaction modification version conflicts
+type TransactionModifyConflictResponse struct {
+	CurrentTransaction   *TransactionInfoResponse `json:"currentTransaction"`
+	SubmittedTransaction *TransactionInfoResponse `json:"submittedTransaction"`
 }
 
 // TransactionCountResponse represents transaction count response
@@ -648,6 +657,7 @@ func (t *Transaction) ToTransactionInfoResponse(tagIds []int64, editable bool) *
 
 	return &TransactionInfoResponse{
 		Id:                   t.TransactionId,
+		Version:              t.Version,
 		TimeSequenceId:       t.TransactionTime,
 		Type:                 transactionType,
 		CategoryId:           t.CategoryId,
