@@ -80,6 +80,56 @@ func (s *LocalFileSystemObjectStorage) Delete(ctx core.Context, path string) err
 	return nil
 }
 
+// List returns metadata of all objects under the specified prefix
+func (s *LocalFileSystemObjectStorage) List(ctx core.Context, prefix string) ([]ObjectMeta, error) {
+	searchRoot := s.getFinalPath(prefix)
+	objects := make([]ObjectMeta, 0)
+
+	if _, err := os.Stat(searchRoot); err != nil {
+		if os.IsNotExist(err) {
+			return objects, nil
+		}
+
+		return nil, err
+	}
+
+	err := filepath.WalkDir(searchRoot, func(fullPath string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		fileInfo, err := d.Info()
+
+		if err != nil {
+			return err
+		}
+
+		relativePath, err := filepath.Rel(s.rootPath, fullPath)
+
+		if err != nil {
+			return err
+		}
+
+		objects = append(objects, ObjectMeta{
+			Path:         filepath.ToSlash(relativePath),
+			Size:         fileInfo.Size(),
+			LastModified: fileInfo.ModTime(),
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return objects, nil
+}
+
 func (s *LocalFileSystemObjectStorage) getFinalPath(path string) string {
 	return filepath.Join(s.rootPath, path)
 }

@@ -41,6 +41,7 @@ func main() {
 			cmd.CronJobs,
 			cmd.SecurityUtils,
 			cmd.Utilities,
+			cmd.Attachments,
 		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{

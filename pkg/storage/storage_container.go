@@ -165,6 +165,21 @@ func (s *StorageContainer) DeleteTransactionPicture(ctx core.Context, path strin
 	return s.transactionPictureCurrentStorage.Delete(ctx, path)
 }
 
+// ListTransactionPictures returns metadata of all transaction picture files in the current transaction picture object storage
+func (s *StorageContainer) ListTransactionPictures(ctx core.Context, prefix string) ([]ObjectMeta, error) {
+	if s.transactionPictureCurrentStorage == nil {
+		return nil, errs.ErrSystemError
+	}
+
+	listableStorage, supportsList := s.transactionPictureCurrentStorage.(ListableObjectStorage)
+
+	if !supportsList {
+		return nil, errs.ErrNotSupported
+	}
+
+	return listableStorage.List(ctx, prefix)
+}
+
 func newObjectStorage(config *settings.Config, pathPrefix string) (ObjectStorage, error) {
 	if config.StorageType == settings.LocalFileSystemObjectStorageType {
 		return NewLocalFileSystemObjectStorage(config, pathPrefix)

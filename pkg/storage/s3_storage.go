@@ -169,6 +169,64 @@ func (s *S3ObjectStorage) Delete(ctx core.Context, path string) error {
 	return err
 }
 
+// List returns metadata of all objects under the specified prefix
+func (s *S3ObjectStorage) List(ctx core.Context, prefix string) ([]ObjectMeta, error) {
+	listPrefix := s.getListPrefix(prefix)
+	rootPathPrefix := s.getListPrefix("")
+	objects := make([]ObjectMeta, 0)
+	var continuationToken *string
+
+	for {
+		output, err := s.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.s3Config.Bucket),
+			Prefix:            aws.String(listPrefix),
+			ContinuationToken: continuationToken,
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+		for i := 0; i < len(output.Contents); i++ {
+			object := output.Contents[i]
+
+			if aws.ToString(object.Key) == listPrefix {
+				continue
+			}
+
+			relativePath := strings.TrimPrefix(aws.ToString(object.Key), rootPathPrefix)
+
+			if relativePath == "" || strings.HasSuffix(relativePath, "/") {
+				continue
+			}
+
+			objects = append(objects, ObjectMeta{
+				Path:         relativePath,
+				Size:         aws.ToInt64(object.Size),
+				LastModified: aws.ToTime(object.LastModified),
+			})
+		}
+
+		if !aws.ToBool(output.IsTruncated) {
+			break
+		}
+
+		continuationToken = output.NextContinuationToken
+	}
+
+	return objects, nil
+}
+
+func (s *S3ObjectStorage) getListPrefix(prefix string) string {
+	listPrefix := s.getFinalPath(prefix)
+
+	if listPrefix != "" && !strings.HasSuffix(listPrefix, "/") {
+		listPrefix = listPrefix + "/"
+	}
+
+	return listPrefix
+}
+
 func (s *S3ObjectStorage) getFinalPath(path string) string {
 	rootPath := s.rootPath
 

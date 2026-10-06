@@ -108,6 +108,52 @@ func (s *MinIOObjectStorage) Delete(ctx core.Context, path string) error {
 	return s.minIOClient.RemoveObject(ctx, s.minIOConfig.Bucket, s.getFinalPath(path), minio.RemoveObjectOptions{})
 }
 
+// List returns metadata of all objects under the specified prefix
+func (s *MinIOObjectStorage) List(ctx core.Context, prefix string) ([]ObjectMeta, error) {
+	listPrefix := s.getListPrefix(prefix)
+	rootPathPrefix := s.getListPrefix("")
+	objectsCh := s.minIOClient.ListObjects(ctx, s.minIOConfig.Bucket, minio.ListObjectsOptions{
+		Prefix:    listPrefix,
+		Recursive: true,
+	})
+
+	objects := make([]ObjectMeta, 0)
+
+	for object := range objectsCh {
+		if object.Err != nil {
+			return nil, object.Err
+		}
+
+		if object.Key == listPrefix || strings.HasSuffix(object.Key, "/") {
+			continue
+		}
+
+		relativePath := strings.TrimPrefix(object.Key, rootPathPrefix)
+
+		if relativePath == "" {
+			continue
+		}
+
+		objects = append(objects, ObjectMeta{
+			Path:         relativePath,
+			Size:         object.Size,
+			LastModified: object.LastModified,
+		})
+	}
+
+	return objects, nil
+}
+
+func (s *MinIOObjectStorage) getListPrefix(prefix string) string {
+	listPrefix := s.getFinalPath(prefix)
+
+	if listPrefix != "" && !strings.HasSuffix(listPrefix, "/") {
+		listPrefix = listPrefix + "/"
+	}
+
+	return listPrefix
+}
+
 func (s *MinIOObjectStorage) getFinalPath(path string) string {
 	rootPath := s.rootPath
 

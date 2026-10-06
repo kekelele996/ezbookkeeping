@@ -154,6 +154,11 @@ func (s *ServiceUsingStorage) DeleteTransactionPicture(ctx core.Context, uid int
 	return s.container.DeleteTransactionPicture(ctx, s.getTransactionPicturePath(uid, pictureId, fileExtension))
 }
 
+// ListTransactionPictures returns metadata of all transaction picture files in the current transaction picture object storage
+func (s *ServiceUsingStorage) ListTransactionPictures(ctx core.Context, prefix string) ([]storage.ObjectMeta, error) {
+	return s.container.ListTransactionPictures(ctx, prefix)
+}
+
 func (s *ServiceUsingStorage) getUserAvatarPath(uid int64, fileExtension string) string {
 	return fmt.Sprintf("%d.%s", uid, fileExtension)
 }

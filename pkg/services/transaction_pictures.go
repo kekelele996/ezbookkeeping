@@ -148,6 +148,22 @@ func (s *TransactionPictureService) GetAllPictureInfosOfAllTransactions(c core.C
 	return pictureInfoMap, err
 }
 
+// GetAllPictureInfosByUid returns all transaction picture info models of the user, including soft-deleted records
+func (s *TransactionPictureService) GetAllPictureInfosByUid(c core.Context, uid int64) ([]*models.TransactionPictureInfo, error) {
+	if uid <= 0 {
+		return nil, errs.ErrUserIdInvalid
+	}
+
+	var pictureInfos []*models.TransactionPictureInfo
+	err := s.UserDataDB(uid).NewSession(c).Where("uid=?", uid).OrderBy("picture_id asc").Find(&pictureInfos)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return pictureInfos, nil
+}
+
 // GetPictureByPictureId returns the transaction picture data according to transaction picture id
 func (s *TransactionPictureService) GetPictureByPictureId(c core.Context, uid int64, pictureId int64, fileExtension string) ([]byte, error) {
 	if uid <= 0 {
