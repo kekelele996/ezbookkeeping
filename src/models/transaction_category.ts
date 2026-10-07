@@ -16,6 +16,8 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
     public comment: string;
     public displayOrder: number;
     public visible: boolean;
+    public taxDeductible: boolean;
+    public taxRefund: boolean;
     public subCategories?: TransactionCategory[];
 
     private constructor(id: string, name: string, parentId: string, type: CategoryType, icon: string, iconType: number, color: ColorValue, comment: string, displayOrder: number, visible: boolean, subCategories?: TransactionCategory[]) {
@@ -29,6 +31,8 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
         this.comment = comment;
         this.displayOrder = displayOrder;
         this.visible = visible;
+        this.taxDeductible = false;
+        this.taxRefund = false;
 
         if (subCategories) {
             this.subCategories = subCategories;
@@ -74,7 +78,7 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
         return true;
     }
 
-    public fillFrom(other: TransactionCategory): void {
+    public fillFrom(other: TransactionCategory | TransactionCategoryInfoResponse): void {
         this.id = other.id;
         this.name = other.name;
         this.parentId = other.parentId;
@@ -83,7 +87,9 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
         this.iconType = other.iconType;
         this.color = other.color;
         this.comment = other.comment;
-        this.visible = other.visible;
+        this.visible = !other.hidden;
+        this.taxDeductible = !!other.taxDeductible;
+        this.taxRefund = !!other.taxRefund;
     }
 
     public clone(): TransactionCategory {
@@ -110,6 +116,8 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
             iconType: this.iconType,
             color: this.color,
             comment: this.comment,
+            taxDeductible: this.taxDeductible,
+            taxRefund: this.taxRefund,
             clientSessionId: clientSessionId
         };
     }
@@ -123,12 +131,14 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
             iconType: this.iconType,
             color: this.color,
             comment: this.comment,
-            hidden: !this.visible
+            hidden: !this.visible,
+            taxDeductible: this.taxDeductible,
+            taxRefund: this.taxRefund
         };
     }
 
     public static of(categoryResponse: TransactionCategoryInfoResponse): TransactionCategory {
-        return new TransactionCategory(
+        const category = new TransactionCategory(
             categoryResponse.id,
             categoryResponse.name,
             categoryResponse.parentId,
@@ -141,6 +151,10 @@ export class TransactionCategory implements TransactionCategoryInfoResponse {
             !categoryResponse.hidden,
             categoryResponse.subCategories ? TransactionCategory.ofMulti(categoryResponse.subCategories) : undefined
         );
+
+        category.taxDeductible = !!categoryResponse.taxDeductible;
+        category.taxRefund = !!categoryResponse.taxRefund;
+        return category;
     }
 
     public static ofMulti(categoryResponses: TransactionCategoryInfoResponse[]): TransactionCategory[] {
@@ -186,6 +200,8 @@ export interface TransactionCategoryCreateRequest {
     readonly iconType: number;
     readonly color: string;
     readonly comment: string;
+    readonly taxDeductible: boolean;
+    readonly taxRefund: boolean;
     readonly clientSessionId: string;
 }
 
@@ -211,6 +227,8 @@ export interface TransactionCategoryModifyRequest {
     readonly color: string;
     readonly comment: string;
     readonly hidden: boolean;
+    readonly taxDeductible: boolean;
+    readonly taxRefund: boolean;
 }
 
 export interface TransactionCategoryHideRequest {
@@ -242,5 +260,7 @@ export interface TransactionCategoryInfoResponse {
     readonly comment: string;
     readonly displayOrder: number;
     readonly hidden: boolean;
+    readonly taxDeductible: boolean;
+    readonly taxRefund: boolean;
     readonly subCategories?: TransactionCategoryInfoResponse[];
 }

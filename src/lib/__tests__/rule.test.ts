@@ -49,7 +49,9 @@ function createCategory(id: string, name: string, type: CategoryType): Transacti
         color: '#000000',
         comment: '',
         displayOrder: 0,
-        hidden: false
+        hidden: false,
+        taxDeductible: false,
+        taxRefund: false
     });
 }
 

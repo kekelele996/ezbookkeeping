@@ -73,6 +73,14 @@
                             <v-switch :disabled="loading || submitting"
                                       :label="tt('Visible')" v-model="category.visible"/>
                         </v-col>
+                        <v-col class="py-0 my-n2" cols="12" md="12" v-if="category.type === CategoryType.Expense">
+                            <v-switch :disabled="loading || submitting" color="primary"
+                                      :label="tt('Tax Deductible')" v-model="category.taxDeductible" />
+                        </v-col>
+                        <v-col class="py-0 my-n2" cols="12" md="12" v-if="category.type === CategoryType.Income">
+                            <v-switch :disabled="loading || submitting" color="primary"
+                                      :label="tt('Tax Refund Category')" v-model="category.taxRefund" />
+                        </v-col>
                     </v-row>
                 </v-form>
             </template>

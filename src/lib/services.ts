@@ -190,6 +190,17 @@ import type {
     UserCustomIconMoveRequest,
     UserCustomIconDeleteRequest
 } from '@/models/user_custom_icon.ts';
+import type {
+    TaxSummary,
+    TaxSummaryRequest,
+    TaxReportSnapshotInfo,
+    TaxReportSnapshotListResponse,
+    TaxReportSnapshotCreateRequest,
+    TaxReportSnapshotDeleteRequest,
+    UserCustomDailyExchangeRate,
+    UserCustomDailyExchangeRateUpdateRequest,
+    UserCustomDailyExchangeRateDeleteRequest
+} from '@/models/tax_report.ts';
 
 import {
     getCurrentToken,
@@ -1047,5 +1058,27 @@ export default {
         } else {
             return pictureUrl + '?' + params.join('&');
         }
+    },
+
+    getTaxSummary: (req: TaxSummaryRequest): ApiResponsePromise<TaxSummary> => {
+        return axios.get<ApiResponse<TaxSummary>>(`v1/tax/reports/summary.json?year=${req.year}&fiscal_year_start=${encodeURIComponent(req.fiscalYearStart)}&base_currency=${req.baseCurrency}&snapshot_id=${req.snapshotId}`);
+    },
+    getTaxReportSnapshots: (): ApiResponsePromise<TaxReportSnapshotListResponse> => {
+        return axios.get<ApiResponse<TaxReportSnapshotListResponse>>('v1/tax/reports/snapshots/list.json');
+    },
+    createTaxReportSnapshot: (req: TaxReportSnapshotCreateRequest): ApiResponsePromise<TaxReportSnapshotInfo> => {
+        return axios.post<ApiResponse<TaxReportSnapshotInfo>>('v1/tax/reports/snapshots/create.json', req);
+    },
+    deleteTaxReportSnapshot: (req: TaxReportSnapshotDeleteRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/tax/reports/snapshots/delete.json', req);
+    },
+    getTaxDailyExchangeRates: (): ApiResponsePromise<UserCustomDailyExchangeRate[]> => {
+        return axios.get<ApiResponse<UserCustomDailyExchangeRate[]>>('v1/tax/exchange_rates/daily/list.json');
+    },
+    updateTaxDailyExchangeRate: (req: UserCustomDailyExchangeRateUpdateRequest): ApiResponsePromise<UserCustomDailyExchangeRate> => {
+        return axios.post<ApiResponse<UserCustomDailyExchangeRate>>('v1/tax/exchange_rates/daily/update.json', req);
+    },
+    deleteTaxDailyExchangeRate: (req: UserCustomDailyExchangeRateDeleteRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/tax/exchange_rates/daily/delete.json', req);
     }
 };

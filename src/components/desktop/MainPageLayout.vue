@@ -77,6 +77,17 @@
                                     </v-btn>
                                 </router-link>
 
+                                <router-link to="/tax/report"
+                                             :aria-current="isTopNavigationActive('/tax/report') ? 'page' : undefined">
+                                    <v-btn class="top-navigation-button ms-1" density="comfortable" variant="text"
+                                           :aria-label="tt('Annual Tax Summary')" :icon="true"
+                                           :active="isTopNavigationActive('/tax/report')"
+                                           :color="isTopNavigationActive('/tax/report') ? 'primary' : 'default'">
+                                        <v-icon :icon="isTopNavigationActive('/tax/report') ? mdiReceiptText : mdiReceiptTextOutline" size="24" />
+                                        <v-tooltip activator="parent">{{ tt('Annual Tax Summary') }}</v-tooltip>
+                                    </v-btn>
+                                </router-link>
+
                                 <router-link to="/account/list"
                                              :aria-current="isTopNavigationActive('/account/list') ? 'page' : undefined">
                                     <v-btn class="top-navigation-button ms-1" density="comfortable" variant="text"
@@ -212,6 +223,8 @@ import {
     mdiChartPieOutline,
     mdiCompass,
     mdiCompassOutline,
+    mdiReceiptText,
+    mdiReceiptTextOutline,
     mdiPlus,
     mdiCellphone,
     mdiThemeLightDark,

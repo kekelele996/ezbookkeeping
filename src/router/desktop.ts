@@ -45,6 +45,8 @@ import DeveloperToolsPage from '@/views/desktop/settings/DeveloperToolsPage.vue'
 
 import ExchangeRatesListPage from '@/views/desktop/exchangerates/ListPage.vue';
 
+import TaxReportPage from '@/views/desktop/tax/ReportPage.vue';
+
 function checkLogin(): NavigationGuardReturn {
     if (!isUserLogined()) {
         return {
@@ -157,6 +159,11 @@ const router = createRouter({
                 initStartTime: route.query['startTime'],
                 initEndTime: route.query['endTime']
             })
+        },
+        {
+            path: '/tax/report',
+            component: TaxReportPage,
+            beforeEnter: checkLogin
         },
         {
             path: '/account/list',

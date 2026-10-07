@@ -515,6 +515,16 @@ func startWebServer(c *core.CliContext) error {
 			apiV1Route.POST("/exchange_rates/user_custom/update.json", bindApi(api.ExchangeRates.UserCustomExchangeRateUpdateHandler, config))
 			apiV1Route.POST("/exchange_rates/user_custom/delete.json", bindApi(api.ExchangeRates.UserCustomExchangeRateDeleteHandler, config))
 
+			// Tax Reports
+			apiV1Route.GET("/tax/reports/summary.json", bindApi(api.TaxReports.TaxSummaryHandler, config))
+			apiV1Route.GET("/tax/reports/snapshots/list.json", bindApi(api.TaxReports.TaxReportSnapshotListHandler, config))
+			apiV1Route.GET("/tax/reports/snapshots/get.json", bindApi(api.TaxReports.TaxReportSnapshotGetHandler, config))
+			apiV1Route.POST("/tax/reports/snapshots/create.json", bindApi(api.TaxReports.TaxReportSnapshotCreateHandler, config))
+			apiV1Route.POST("/tax/reports/snapshots/delete.json", bindApi(api.TaxReports.TaxReportSnapshotDeleteHandler, config))
+			apiV1Route.GET("/tax/exchange_rates/daily/list.json", bindApi(api.TaxReports.TaxDailyExchangeRateListHandler, config))
+			apiV1Route.POST("/tax/exchange_rates/daily/update.json", bindApi(api.TaxReports.TaxDailyExchangeRateUpdateHandler, config))
+			apiV1Route.POST("/tax/exchange_rates/daily/delete.json", bindApi(api.TaxReports.TaxDailyExchangeRateDeleteHandler, config))
+
 			// System
 			apiV1Route.GET("/systems/version.json", bindApi(api.Systems.VersionHandler, config))
 		}

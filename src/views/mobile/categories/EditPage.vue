@@ -137,6 +137,18 @@
                 </template>
             </f7-list-item>
 
+            <f7-list-item :title="tt('Tax Deductible')" v-if="category.type === CategoryType.Expense">
+                <template #after>
+                    <f7-toggle :checked="category.taxDeductible" @toggle:change="category.taxDeductible = $event"></f7-toggle>
+                </template>
+            </f7-list-item>
+
+            <f7-list-item :title="tt('Tax Refund Category')" v-if="category.type === CategoryType.Income">
+                <template #after>
+                    <f7-toggle :checked="category.taxRefund" @toggle:change="category.taxRefund = $event"></f7-toggle>
+                </template>
+            </f7-list-item>
+
             <f7-list-input
                 type="textarea"
                 style="height: auto"
