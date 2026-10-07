@@ -483,6 +483,12 @@ func startWebServer(c *core.CliContext) error {
 			apiV1Route.POST("/insights/explorers/move.json", bindApi(api.InsightsExplorers.InsightsExplorerMoveHandler, config))
 			apiV1Route.POST("/insights/explorers/delete.json", bindApi(api.InsightsExplorers.InsightsExplorerDeleteHandler, config))
 
+			// Insights Explorer Snapshots
+			apiV1Route.GET("/insights/explorer_snapshots/list.json", bindApi(api.InsightsExplorerSnapshots.InsightsExplorerSnapshotListHandler, config))
+			apiV1Route.GET("/insights/explorer_snapshots/get.json", bindApi(api.InsightsExplorerSnapshots.InsightsExplorerSnapshotGetHandler, config))
+			apiV1Route.POST("/insights/explorer_snapshots/add.json", bindApi(api.InsightsExplorerSnapshots.InsightsExplorerSnapshotCreateHandler, config))
+			apiV1Route.POST("/insights/explorer_snapshots/delete.json", bindApi(api.InsightsExplorerSnapshots.InsightsExplorerSnapshotDeleteHandler, config))
+
 			// Large Language Models
 			if config.TextRecognitionLLMConfig != nil && config.TextRecognitionLLMConfig.LLMProvider != "" {
 				if config.TransactionFromAITextRecognition {

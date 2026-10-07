@@ -22,18 +22,19 @@ const pageCountForDataExport = 1000
 // DataManagementsApi represents data management api
 type DataManagementsApi struct {
 	ApiUsingConfig
-	tokens                  *services.TokenService
-	users                   *services.UserService
-	accounts                *services.AccountService
-	transactions            *services.TransactionService
-	categories              *services.TransactionCategoryService
-	tags                    *services.TransactionTagService
-	tagGroups               *services.TransactionTagGroupService
-	pictures                *services.TransactionPictureService
-	templates               *services.TransactionTemplateService
-	userCustomIcons         *services.UserCustomIconService
-	userCustomExchangeRates *services.UserCustomExchangeRatesService
-	insightsExploreres      *services.InsightsExplorerService
+	tokens                    *services.TokenService
+	users                     *services.UserService
+	accounts                  *services.AccountService
+	transactions              *services.TransactionService
+	categories                *services.TransactionCategoryService
+	tags                      *services.TransactionTagService
+	tagGroups                 *services.TransactionTagGroupService
+	pictures                  *services.TransactionPictureService
+	templates                 *services.TransactionTemplateService
+	userCustomIcons           *services.UserCustomIconService
+	userCustomExchangeRates   *services.UserCustomExchangeRatesService
+	insightsExploreres        *services.InsightsExplorerService
+	insightsExplorerSnapshots *services.InsightsExplorerSnapshotService
 }
 
 // Initialize a data management api singleton instance
@@ -42,18 +43,19 @@ var (
 		ApiUsingConfig: ApiUsingConfig{
 			container: settings.Container,
 		},
-		tokens:                  services.Tokens,
-		users:                   services.Users,
-		accounts:                services.Accounts,
-		transactions:            services.Transactions,
-		categories:              services.TransactionCategories,
-		tags:                    services.TransactionTags,
-		tagGroups:               services.TransactionTagGroups,
-		pictures:                services.TransactionPictures,
-		templates:               services.TransactionTemplates,
-		userCustomIcons:         services.UserCustomIcons,
-		userCustomExchangeRates: services.UserCustomExchangeRates,
-		insightsExploreres:      services.InsightsExplorers,
+		tokens:                    services.Tokens,
+		users:                     services.Users,
+		accounts:                  services.Accounts,
+		transactions:              services.Transactions,
+		categories:                services.TransactionCategories,
+		tags:                      services.TransactionTags,
+		tagGroups:                 services.TransactionTagGroups,
+		pictures:                  services.TransactionPictures,
+		templates:                 services.TransactionTemplates,
+		userCustomIcons:           services.UserCustomIcons,
+		userCustomExchangeRates:   services.UserCustomExchangeRates,
+		insightsExploreres:        services.InsightsExplorers,
+		insightsExplorerSnapshots: services.InsightsExplorerSnapshots,
 	}
 )
 
@@ -240,6 +242,13 @@ func (a *DataManagementsApi) ClearAllDataHandler(c *core.WebContext) (any, *errs
 
 	if err != nil {
 		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all explorations, because %s", err.Error())
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	err = a.insightsExplorerSnapshots.DeleteAllSnapshots(c, uid)
+
+	if err != nil {
+		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all exploration snapshots, because %s", err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 

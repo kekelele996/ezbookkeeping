@@ -43,6 +43,17 @@ import {
     type CodingAssistantResponse,
     CodingAssistantType
 } from '@/models/large_language_model.ts';
+import type { LatestExchangeRate } from '@/models/exchange_rate.ts';
+import {
+    InsightsExplorerSnapshot
+} from '@/models/explorer_snapshot.ts';
+import type { InsightsExplorerSnapshotPayload } from '@/models/explorer_snapshot.ts';
+import {
+    buildSnapshotPayload,
+    rehydrateSnapshotTransactions,
+    diffSnapshotWithCurrentTransactions,
+    type SnapshotDifference
+} from '@/lib/explorerSnapshot.ts';
 
 import {
     isDefined,
@@ -55,7 +66,8 @@ import {
     BIG_DECIMAL_ZERO,
     BIG_DECIMAL_POSITIVE_INFINITY,
     BIG_DECIMAL_NEGATIVE_INFINITY,
-    parseBigDecimal
+    parseBigDecimal,
+    getExchangedAmountByRate
 } from '@/lib/numeral.ts';
 import {
     min,
@@ -223,6 +235,25 @@ export const useExplorersStore = defineStore('explorers', () => {
                 return cachedNormalizedDescription;
             }
         };
+    }
+
+    function getExchangedAmountInExplorerMode(amount: BigDecimal, fromCurrency: string, toCurrency: string): BigDecimal | null {
+        if (snapshotMode.value) {
+            if (amount.isZero()) {
+                return amount;
+            }
+
+            const fromCurrencyExchangeRate = frozenExchangeRateMap.value[fromCurrency];
+            const toCurrencyExchangeRate = frozenExchangeRateMap.value[toCurrency];
+
+            if (!fromCurrencyExchangeRate || !toCurrencyExchangeRate) {
+                return null;
+            }
+
+            return getExchangedAmountByRate(amount, fromCurrencyExchangeRate.rate, toCurrencyExchangeRate.rate);
+        }
+
+        return exchangeRatesStore.getExchangedAmount(amount, fromCurrency, toCurrency);
     }
 
     function calculateAmountRanges(sortedAmounts: BigDecimal[], dimension: TransactionExplorerDataDimension, rangeCount: number): BigDecimal[] {
@@ -666,7 +697,7 @@ export const useExplorersStore = defineStore('explorers', () => {
             }
 
             if (account.currency !== defaultCurrency) {
-                const exchangedAmount = exchangeRatesStore.getExchangedAmount(amount, account.currency, defaultCurrency);
+                const exchangedAmount = getExchangedAmountInExplorerMode(amount, account.currency, defaultCurrency);
 
                 if (exchangedAmount) {
                     amountInDefaultCurrency = exchangedAmount.truncate();
@@ -715,7 +746,7 @@ export const useExplorersStore = defineStore('explorers', () => {
             }
 
             if (account.currency !== defaultCurrency) {
-                const exchangedAmount = exchangeRatesStore.getExchangedAmount(amount, account.currency, defaultCurrency);
+                const exchangedAmount = getExchangedAmountInExplorerMode(amount, account.currency, defaultCurrency);
 
                 if (exchangedAmount) {
                     amountInDefaultCurrency = exchangedAmount.truncate();
@@ -793,12 +824,12 @@ export const useExplorersStore = defineStore('explorers', () => {
         let destinationAmountInDefaultCurrency: BigDecimal | undefined = transaction.type === TransactionType.Transfer && transaction.destinationAccount ? parseBigDecimal(transaction.destinationAmount) : undefined;
 
         if (transaction.sourceAccount.currency !== defaultCurrency) {
-            const amount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount.currency, defaultCurrency);
+            const amount = getExchangedAmountInExplorerMode(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount.currency, defaultCurrency);
             sourceAmountInDefaultCurrency = amount?.truncate();
         }
 
         if (transaction.type === TransactionType.Transfer && transaction.destinationAccount && transaction.destinationAccount.currency !== defaultCurrency) {
-            const amount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.destinationAmount), transaction.destinationAccount.currency, defaultCurrency);
+            const amount = getExchangedAmountInExplorerMode(parseBigDecimal(transaction.destinationAmount), transaction.destinationAccount.currency, defaultCurrency);
             destinationAmountInDefaultCurrency = amount?.truncate();
         }
 
@@ -940,14 +971,21 @@ export const useExplorersStore = defineStore('explorers', () => {
     const currentExploration = ref<InsightsExplorer>(InsightsExplorer.createNewExplorer(generateRandomUUID()));
     const insightsExplorerListStateInvalid = ref<boolean>(true);
 
-    const allTransactions = computed<TransactionInsightDataItem[]>(() => {
-        if (!transactionExplorerAllData.value || transactionExplorerAllData.value.length < 1) {
+    const snapshotMode = ref<boolean>(false);
+    const currentSnapshot = ref<InsightsExplorerSnapshot | null>(null);
+    const frozenSnapshotPayload = ref<InsightsExplorerSnapshotPayload | null>(null);
+    const frozenExchangeRateMap = ref<Record<string, LatestExchangeRate>>({});
+    const allSnapshotBasicInfos = ref<InsightsExplorerSnapshot[]>([]);
+    const snapshotListStateInvalid = ref<boolean>(true);
+
+    function enrichTransactions(allData: TransactionInfoResponse[]): TransactionInsightDataItem[] {
+        if (!allData || allData.length < 1) {
             return [];
         }
 
         const result: TransactionInsightDataItem[] = [];
 
-        for (const transaction of transactionExplorerAllData.value) {
+        for (const transaction of allData) {
             const sourceAccount: Account | undefined = accountsStore.allAccountsMap[transaction.sourceAccountId];
 
             if (!sourceAccount) {
@@ -1012,6 +1050,14 @@ export const useExplorersStore = defineStore('explorers', () => {
         }
 
         return result;
+    }
+
+    const allTransactions = computed<TransactionInsightDataItem[]>(() => {
+        if (snapshotMode.value && frozenSnapshotPayload.value) {
+            return rehydrateSnapshotTransactions(frozenSnapshotPayload.value);
+        }
+
+        return enrichTransactions(transactionExplorerAllData.value);
     });
 
     const isUsingAmountRange = computed<boolean>(() => {
@@ -1118,7 +1164,7 @@ export const useExplorersStore = defineStore('explorers', () => {
             let amountInDefaultCurrency: BigDecimal = parseBigDecimal(transaction.sourceAmount);
 
             if (transaction.sourceAccount.currency !== defaultCurrency) {
-                const amount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount.currency, defaultCurrency);
+                const amount = getExchangedAmountInExplorerMode(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount.currency, defaultCurrency);
 
                 if (amount) {
                     amountInDefaultCurrency = amount.truncate();
@@ -1299,7 +1345,7 @@ export const useExplorersStore = defineStore('explorers', () => {
                     let amountInDefaultCurrency: BigDecimal = parseBigDecimal(transaction.sourceAmount);
 
                     if (transaction.sourceAccount.currency !== defaultCurrency) {
-                        const amount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount.currency, defaultCurrency);
+                        const amount = getExchangedAmountInExplorerMode(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount.currency, defaultCurrency);
 
                         if (amount) {
                             amountInDefaultCurrency = amount.truncate();
@@ -1580,6 +1626,12 @@ export const useExplorersStore = defineStore('explorers', () => {
         currentExploration.value = InsightsExplorer.createNewExplorer(generateRandomUUID());
         transactionExplorerStateInvalid.value = true;
         insightsExplorerListStateInvalid.value = true;
+        snapshotMode.value = false;
+        currentSnapshot.value = null;
+        frozenSnapshotPayload.value = null;
+        frozenExchangeRateMap.value = {};
+        allSnapshotBasicInfos.value = [];
+        snapshotListStateInvalid.value = true;
     }
 
     function initTransactionExplorerFilter(filter?: TransactionExplorerPartialFilter, resetQuery?: boolean): void {
@@ -1663,6 +1715,11 @@ export const useExplorersStore = defineStore('explorers', () => {
     }
 
     function loadAllTransactions({ force }: { force: boolean }): Promise<TransactionInfoResponse[]> {
+        if (snapshotMode.value && frozenSnapshotPayload.value) {
+            // Frozen transactions are provided by allTransactions computed, no live request is needed
+            return Promise.resolve([]);
+        }
+
         return new Promise((resolve, reject) => {
             services.getAllTransactions({
                 startTime: transactionExplorerFilter.value.startTime,
@@ -2007,6 +2064,240 @@ export const useExplorersStore = defineStore('explorers', () => {
         services.cancelRequest(cancelableUuid);
     }
 
+    const snapshotModePreviousExplorationId = ref<string>('');
+
+    function loadAllSnapshots(explorerId?: string): Promise<InsightsExplorerSnapshot[]> {
+        return new Promise((resolve, reject) => {
+            services.getExplorerSnapshots(explorerId).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to retrieve exploration snapshots' });
+                    return;
+                }
+
+                const snapshots = data.result.map(item => InsightsExplorerSnapshot.of(item));
+                allSnapshotBasicInfos.value = snapshots;
+                snapshotListStateInvalid.value = false;
+
+                resolve(snapshots);
+            }).catch(error => {
+                logger.error('failed to load exploration snapshots', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to retrieve exploration snapshots' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    function archiveCurrentSnapshot(name: string): Promise<InsightsExplorerSnapshot> {
+        const payload = buildSnapshotPayload({
+            defaultCurrency: userStore.currentUserDefaultCurrency,
+            filter: {
+                dateRangeType: transactionExplorerFilter.value.dateRangeType,
+                startTime: transactionExplorerFilter.value.startTime,
+                endTime: transactionExplorerFilter.value.endTime
+            },
+            timezoneUsedForDateRange: currentExploration.value.timezoneUsedForDateRange,
+            explorerName: currentExploration.value.name,
+            explorerData: currentExploration.value.data,
+            queries: currentExploration.value.queries,
+            transactionsWithQueryIndexes: filteredTransactionsForCustomChart.value,
+            exchangeRates: exchangeRatesStore.latestExchangeRates.data ?? undefined
+        });
+
+        return new Promise((resolve, reject) => {
+            services.addExplorerSnapshot({
+                name: name,
+                explorerId: currentExploration.value.id || '0',
+                data: payload
+            }).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to archive current exploration' });
+                    return;
+                }
+
+                const snapshot = InsightsExplorerSnapshot.of(data.result);
+                allSnapshotBasicInfos.value = [ snapshot, ...allSnapshotBasicInfos.value ];
+                snapshotListStateInvalid.value = false;
+
+                resolve(snapshot);
+            }).catch(error => {
+                logger.error('failed to archive exploration snapshot', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to archive current exploration' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    function applySnapshot(snapshot: InsightsExplorerSnapshot): void {
+        const payload = snapshot.payload;
+
+        if (!payload) {
+            return;
+        }
+
+        frozenSnapshotPayload.value = payload;
+
+        const rateMap: Record<string, LatestExchangeRate> = {};
+
+        for (const rate of payload.exchangeRates.rates) {
+            rateMap[rate.currency] = {
+                currency: rate.currency,
+                rate: rate.rate
+            };
+        }
+
+        frozenExchangeRateMap.value = rateMap;
+
+        transactionExplorerFilter.value.dateRangeType = payload.filter.dateRangeType;
+        transactionExplorerFilter.value.startTime = payload.filter.startTime;
+        transactionExplorerFilter.value.endTime = payload.filter.endTime;
+
+        currentExploration.value = InsightsExplorer.of({
+            id: snapshot.explorerId && snapshot.explorerId !== '0' ? snapshot.explorerId : '',
+            name: payload.explorerName,
+            displayOrder: 0,
+            hidden: false,
+            data: payload.explorer
+        });
+
+        snapshotMode.value = true;
+        currentSnapshot.value = snapshot;
+        transactionExplorerStateInvalid.value = false;
+    }
+
+    function enterSnapshotMode({ snapshotId }: { snapshotId: string }): Promise<InsightsExplorerSnapshot> {
+        if (!snapshotMode.value) {
+            snapshotModePreviousExplorationId.value = currentExploration.value.id;
+        }
+
+        return new Promise((resolve, reject) => {
+            services.getExplorerSnapshot({
+                id: snapshotId
+            }).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to retrieve exploration snapshot' });
+                    return;
+                }
+
+                const snapshot = InsightsExplorerSnapshot.of(data.result);
+
+                if (!snapshot.payload) {
+                    reject({ message: 'Exploration snapshot data is invalid' });
+                    return;
+                }
+
+                applySnapshot(snapshot);
+
+                resolve(snapshot);
+            }).catch(error => {
+                logger.error('failed to load exploration snapshot', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to retrieve exploration snapshot' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    function exitSnapshotMode(): void {
+        snapshotMode.value = false;
+        currentSnapshot.value = null;
+        frozenSnapshotPayload.value = null;
+        frozenExchangeRateMap.value = {};
+        transactionExplorerStateInvalid.value = true;
+        initTransactionExplorerFilter(undefined, true);
+    }
+
+    function deleteSnapshot({ snapshotId }: { snapshotId: string }): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            services.deleteExplorerSnapshot({
+                id: snapshotId
+            }).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to delete this exploration snapshot' });
+                    return;
+                }
+
+                allSnapshotBasicInfos.value = allSnapshotBasicInfos.value.filter(snapshot => snapshot.id !== snapshotId);
+
+                if (currentSnapshot.value?.id === snapshotId) {
+                    exitSnapshotMode();
+                }
+
+                resolve(data.result);
+            }).catch(error => {
+                logger.error('failed to delete exploration snapshot', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to delete this exploration snapshot' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    function calculateCurrentSnapshotDifference(): Promise<SnapshotDifference> {
+        const payload = frozenSnapshotPayload.value;
+
+        if (!payload) {
+            return Promise.reject({ message: 'No exploration snapshot is being viewed' });
+        }
+
+        return new Promise((resolve, reject) => {
+            services.getAllTransactions({
+                startTime: payload.filter.startTime,
+                endTime: payload.filter.endTime,
+                withPictures: true
+            }).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to retrieve current transactions' });
+                    return;
+                }
+
+                const liveTransactions = enrichTransactions(data.result);
+                resolve(diffSnapshotWithCurrentTransactions(payload, liveTransactions));
+            }).catch(error => {
+                logger.error('failed to calculate exploration snapshot difference', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to retrieve current transactions' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
     return {
         // states
         transactionExplorerFilter,
@@ -2015,6 +2306,12 @@ export const useExplorersStore = defineStore('explorers', () => {
         allExplorationBasicInfosMap,
         currentExploration,
         insightsExplorerListStateInvalid,
+        // snapshot states
+        snapshotMode,
+        currentSnapshot,
+        snapshotModePreviousExplorationId,
+        allSnapshotBasicInfos,
+        snapshotListStateInvalid,
         // computed
         isUsingAmountRange,
         filteredTransactionsInDataTable,
@@ -2039,6 +2336,13 @@ export const useExplorersStore = defineStore('explorers', () => {
         hideExploration,
         deleteExploration,
         generateCustomChartCode,
-        cancelGenerateCustomChartCode
+        cancelGenerateCustomChartCode,
+        // snapshot functions
+        loadAllSnapshots,
+        archiveCurrentSnapshot,
+        enterSnapshotMode,
+        exitSnapshotMode,
+        deleteSnapshot,
+        calculateCurrentSnapshotDifference
     };
 });

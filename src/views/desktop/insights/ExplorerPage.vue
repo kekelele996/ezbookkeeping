@@ -8,14 +8,14 @@
             <div class="insights-explorer-list">
                 <li class="nav-link" key="new">
                     <a class="d-flex align-center cursor-pointer"
-                       :class="{ 'router-link-active router-link-exact-active': !currentExploration.id, 'disabled': loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable }"
+                       :class="{ 'router-link-active router-link-exact-active': !currentExploration.id, 'disabled': loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable || isSnapshotMode }"
                        @click="createNewExploration">
                         <span class="nav-item-title text-truncate">{{ tt('New Exploration') }}</span>
                     </a>
                 </li>
                 <li class="nav-link" :key="exploration.id" v-for="exploration in allVisibleExplorations">
                     <a class="d-flex align-center cursor-pointer"
-                       :class="{ 'router-link-active router-link-exact-active': currentExploration.id === exploration.id, 'disabled': loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable }"
+                       :class="{ 'router-link-active router-link-exact-active': currentExploration.id === exploration.id, 'disabled': loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable || isSnapshotMode }"
                        @click="loadExploration(exploration.id)">
                         <span class="nav-item-title text-truncate">{{ exploration.name || tt('Untitled Exploration') }}</span>
                     </a>
@@ -29,16 +29,36 @@
 
         <template #content>
             <v-card min-height="800">
+                <v-alert v-if="isSnapshotMode" type="info" variant="tonal" density="comfortable" class="ma-3 mb-0 snapshot-banner"
+                         :icon="mdiArchiveOutline">
+                    <div class="d-flex align-center flex-wrap gap-2">
+                        <div class="d-flex flex-column">
+                            <span class="font-weight-bold">{{ tt('Archived Snapshot') }}{{ currentSnapshot?.name ? ': ' + currentSnapshot.name : '' }}</span>
+                            <span class="text-body-small">{{ tt('Frozen at') }} {{ snapshotFrozenTimeText }} · {{ tt('Read-only view, results are frozen at archive time') }}</span>
+                        </div>
+                        <v-spacer/>
+                        <v-btn size="small" variant="tonal" color="primary" class="ms-2"
+                               :prepend-icon="mdiCompareHorizontal" :loading="comparing"
+                               @click="compareCurrentSnapshot">
+                            {{ tt('Compare with Current Data') }}
+                        </v-btn>
+                        <v-btn size="small" variant="text" class="ms-2"
+                               :prepend-icon="mdiClose" :disabled="comparing"
+                               @click="exitSnapshotView">
+                            {{ tt('Back to Live View') }}
+                        </v-btn>
+                    </div>
+                </v-alert>
                 <template #title>
                     <div class="title-and-toolbar d-flex align-center">
                         <span>{{ tt('Insights Explorer') }}</span>
                         <v-btn-group class="ms-4" color="default" density="comfortable" variant="outlined" divided>
                             <v-btn class="button-icon-with-direction" :icon="mdiArrowLeft"
-                                   :aria-label="tt('Previous Period')" :disabled="loading || updating || isCustomChartAIGenerating || !canShiftDateRange || isCurrentDataTableEditable"
+                                   :aria-label="tt('Previous Period')" :disabled="loading || updating || isCustomChartAIGenerating || !canShiftDateRange || isCurrentDataTableEditable || isSnapshotMode"
                                    @click="shiftDateRange(-1)"/>
                             <v-menu location="bottom" max-height="500">
                                 <template #activator="{ props }">
-                                    <v-btn :disabled="loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable"
+                                    <v-btn :disabled="loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable || isSnapshotMode"
                                            v-bind="props">{{ displayQueryDateRangeName }}</v-btn>
                                 </template>
                                 <v-list :selected="[currentFilter.dateRangeType]">
@@ -61,12 +81,12 @@
                                 </v-list>
                             </v-menu>
                             <v-btn class="button-icon-with-direction" :icon="mdiArrowRight"
-                                   :aria-label="tt('Next Period')" :disabled="loading || updating || isCustomChartAIGenerating || !canShiftDateRange || isCurrentDataTableEditable"
+                                   :aria-label="tt('Next Period')" :disabled="loading || updating || isCustomChartAIGenerating || !canShiftDateRange || isCurrentDataTableEditable || isSnapshotMode"
                                    @click="shiftDateRange(1)"/>
                         </v-btn-group>
 
                         <v-btn density="compact" color="default" variant="text" class="ms-2"
-                               :aria-label="tt('Refresh')" :icon="true" :loading="loading" :disabled="updating || isCustomChartAIGenerating" @click="reload(true)">
+                               :aria-label="tt('Refresh')" :icon="true" :loading="loading" :disabled="updating || isCustomChartAIGenerating || isSnapshotMode" @click="reload(true)">
                             <template #loader>
                                 <v-progress-circular indeterminate size="20"/>
                             </template>
@@ -75,13 +95,14 @@
                         </v-btn>
                         <v-btn density="compact" color="default" variant="text" class="ms-2"
                                :aria-label="tt('AI Generate Chart Code')" :icon="true" :disabled="loading || updating || isCustomChartInAIMode"
-                               v-if="activeTab === 'chart' && currentExploration.chartType === TransactionExplorerChartTypeValue.Custom && isInsightsExplorerCodingAssistantEnabled()"
+                               v-if="!isSnapshotMode && activeTab === 'chart' && currentExploration.chartType === TransactionExplorerChartTypeValue.Custom && isInsightsExplorerCodingAssistantEnabled()"
                                @click="explorerChartTab?.switchToAIChartMode()">
                             <v-icon :icon="mdiMagicStaff" size="20" />
                             <v-tooltip activator="parent">{{ tt('AI Generate Chart Code') }}</v-tooltip>
                         </v-btn>
                         <v-spacer/>
                         <v-btn class="ms-3"
+                               v-if="!isSnapshotMode"
                                :color="isCurrentExplorationModified ? 'primary' : 'default'"
                                :variant="isCurrentExplorationModified ? 'elevated' : 'outlined'"
                                :disabled="loading || updating || isCustomChartAIGenerating || isCurrentDataTableEditable" @click="saveExploration(false)">
@@ -103,7 +124,17 @@
                             <v-icon :icon="mdiDotsVertical" />
                             <v-menu activator="parent">
                                 <v-list>
-                                    <template v-if="activeTab === 'query'">
+                                    <v-list-item :prepend-icon="mdiArchiveOutline"
+                                                 :title="tt('Archive Current View')"
+                                                 :disabled="loading || updating || isCurrentDataTableEditable"
+                                                 @click="archiveCurrentSnapshot"></v-list-item>
+                                    <v-list-item :prepend-icon="mdiHistory"
+                                                 :title="tt('Archived Snapshots')"
+                                                 :disabled="loading || updating"
+                                                 @click="openSnapshotList"></v-list-item>
+                                    <v-divider class="my-2"/>
+
+                                    <template v-if="activeTab === 'query' && !isSnapshotMode">
                                         <v-list-subheader class="text-body-small"
                                                           :title="tt('Timezone Used for Date Range')"/>
                                         <v-list-item :key="timezoneType.type" :value="timezoneType.type"
@@ -124,7 +155,7 @@
                                         <v-divider class="my-2"/>
                                     </template>
 
-                                    <template v-if="activeTab === 'table'">
+                                    <template v-if="activeTab === 'table' && !isSnapshotMode">
                                         <v-list-item :prepend-icon="mdiTableEdit"
                                                      :title="tt('Enter Edit Mode')"
                                                      :disabled="loading || updating || filteredTransactionsInDataTable.length < 1"
@@ -138,7 +169,7 @@
                                         <v-divider class="my-2" v-if="!isCurrentDataTableEditable"/>
                                     </template>
 
-                                    <template v-if="(activeTab === 'table' && !isCurrentDataTableEditable) || (activeTab === 'chart' && currentExploration.chartType !== TransactionExplorerChartTypeValue.Custom)">
+                                    <template v-if="!isSnapshotMode && ((activeTab === 'table' && !isCurrentDataTableEditable) || (activeTab === 'chart' && currentExploration.chartType !== TransactionExplorerChartTypeValue.Custom))">
                                         <v-list-item :prepend-icon="mdiExport"
                                                      :title="tt('Export Results')"
                                                      :disabled="loading || updating || (activeTab === 'table' && (!filteredTransactionsInDataTable || filteredTransactionsInDataTable.length < 1))"
@@ -146,7 +177,7 @@
                                         <v-divider class="my-2" />
                                     </template>
 
-                                    <template v-if="currentExploration.id && !isCurrentDataTableEditable">
+                                    <template v-if="!isSnapshotMode && currentExploration.id && !isCurrentDataTableEditable">
                                         <v-list-item :prepend-icon="mdiPencilOutline" @click="setExplorationName">
                                             <v-list-item-title>{{ tt('Rename Exploration') }}</v-list-item-title>
                                         </v-list-item>
@@ -166,7 +197,7 @@
                                                  :disabled="!allExplorations || allExplorations.length < 2"
                                                  :title="tt('Change Exploration Display Order')"
                                                  @click="showChangeExplorerDisplayOrderDialog"
-                                                 v-if="!isCurrentDataTableEditable"></v-list-item>
+                                                 v-if="!isCurrentDataTableEditable && !isSnapshotMode"></v-list-item>
                                 </v-list>
                             </v-menu>
                         </v-btn>
@@ -175,22 +206,22 @@
 
                 <v-window class="d-flex flex-grow-1 disable-tab-transition w-100-window-container" v-model="activeTab">
                     <v-window-item value="query">
-                        <explorer-query-tab :loading="loading" :disabled="loading || updating || isCustomChartAIGenerating" />
+                        <explorer-query-tab :loading="loading" :disabled="loading || updating || isCustomChartAIGenerating || isSnapshotMode" />
                     </v-window-item>
                     <v-window-item value="table">
                         <explorer-data-table-tab ref="explorerDataTableTab"
-                                                 :loading="loading" :disabled="loading || updating || isCustomChartAIGenerating"
+                                                 :loading="loading" :disabled="loading || updating || isCustomChartAIGenerating || isSnapshotMode"
                                                  @click:transaction="onShowTransaction"
                                                  v-if="!isCurrentDataTableEditable" />
                         <explorer-editable-data-table-tab ref="explorerEditableDataTableTab"
                                                           :loading="loading" :disabled="loading || updating || isCustomChartAIGenerating"
                                                           @click:transaction="onShowTransaction"
                                                           @update:transactions="onUpdateTransactions"
-                                                          v-if="isCurrentDataTableEditable" />
+                                                          v-if="isCurrentDataTableEditable && !isSnapshotMode" />
                     </v-window-item>
                     <v-window-item value="chart">
                         <explorer-chart-tab ref="explorerChartTab"
-                                            :loading="loading" :disabled="loading || updating"
+                                            :loading="loading" :disabled="loading || updating || isSnapshotMode"
                                             @click:transaction="onShowTransaction" />
                     </v-window-item>
                 </v-window>
@@ -206,6 +237,10 @@
                                  @error="onShowDateRangeError" />
 
     <explorer-change-display-order-dialog ref="explorerChangeDisplayOrderDialog" />
+    <explorer-snapshot-list-dialog ref="snapshotListDialog"
+                                   @view="onViewSnapshot"
+                                   @compare="onCompareSnapshot" />
+    <explorer-snapshot-diff-dialog ref="snapshotDiffDialog" />
     <edit-dialog ref="editDialog" :type="TransactionEditPageType.Transaction" />
     <json-import-dialog ref="queryImportDialog" :title="tt('Import Queries')" :sample-json="sampleQueryJson" :on-import="onImportQueries" />
     <json-export-dialog ref="queryExportDialog" :title="tt('Export Queries')" :file-name="queryExportFileName" />
@@ -230,6 +265,8 @@ import ExplorerDataTableTab from '@/views/desktop/insights/tabs/ExplorerDataTabl
 import ExplorerEditableDataTableTab from '@/views/desktop/insights/tabs/ExplorerEditableDataTableTab.vue';
 import ExplorerChartTab from '@/views/desktop/insights/tabs/ExplorerChartTab.vue';
 import ExplorerChangeDisplayOrderDialog from '@/views/desktop/insights/dialogs/ExplorerChangeDisplayOrderDialog.vue';
+import ExplorerSnapshotListDialog from '@/views/desktop/insights/dialogs/ExplorerSnapshotListDialog.vue';
+import ExplorerSnapshotDiffDialog from '@/views/desktop/insights/dialogs/ExplorerSnapshotDiffDialog.vue';
 import EditDialog from '@/views/desktop/transactions/list/dialogs/EditDialog.vue';
 
 import { ref, computed, useTemplateRef, watch } from 'vue';
@@ -257,8 +294,11 @@ import {
     parseDateTimeFromUnixTime,
     getShiftedDateRangeAndDateType,
     getDateTypeByDateRange,
-    getDateRangeByDateType
+    getDateRangeByDateType,
+    getCurrentUnixTime
 } from '@/lib/datetime.ts';
+
+import type { SnapshotDifference } from '@/lib/explorerSnapshot.ts';
 
 import { isObject, isArray, isEquals, isTextualUUID } from '@/lib/common.ts';
 import { generateRandomUUID } from '@/lib/misc.ts';
@@ -283,7 +323,11 @@ import {
     mdiApplicationExport,
     mdiExport,
     mdiTableEdit,
-    mdiTableCheck
+    mdiTableCheck,
+    mdiArchiveOutline,
+    mdiHistory,
+    mdiCompareHorizontal,
+    mdiClose
 } from '@mdi/js';
 
 interface InsightsExplorerProps {
@@ -307,6 +351,8 @@ type JsonExportDialogType = InstanceType<typeof JsonExportDialog>;
 type ExplorerDataTableTabType = InstanceType<typeof ExplorerDataTableTab>;
 type ExplorerChartTabType = InstanceType<typeof ExplorerChartTab>;
 type ExplorerChangeDisplayOrderDialogType = InstanceType<typeof ExplorerChangeDisplayOrderDialog>;
+type ExplorerSnapshotListDialogType = InstanceType<typeof ExplorerSnapshotListDialog>;
+type ExplorerSnapshotDiffDialogType = InstanceType<typeof ExplorerSnapshotDiffDialog>;
 type EditDialogType = InstanceType<typeof EditDialog>;
 
 const router = useRouter();
@@ -338,6 +384,8 @@ const queryExportDialog = useTemplateRef<JsonExportDialogType>('queryExportDialo
 const explorerDataTableTab = useTemplateRef<ExplorerDataTableTabType>('explorerDataTableTab');
 const explorerChartTab = useTemplateRef<ExplorerChartTabType>('explorerChartTab');
 const explorerChangeDisplayOrderDialog = useTemplateRef<ExplorerChangeDisplayOrderDialogType>('explorerChangeDisplayOrderDialog');
+const snapshotListDialog = useTemplateRef<ExplorerSnapshotListDialogType>('snapshotListDialog');
+const snapshotDiffDialog = useTemplateRef<ExplorerSnapshotDiffDialogType>('snapshotDiffDialog');
 const editDialog = useTemplateRef<EditDialogType>('editDialog');
 
 const loading = ref<boolean>(true);
@@ -348,6 +396,7 @@ const initExploration = ref<InsightsExplorer | null>(null);
 const isCurrentDataTableEditable = ref<boolean>(false);
 const activeTab = ref<ExplorerPageTabType>('query');
 const showCustomDateRangeDialog = ref<boolean>(false);
+const comparing = ref<boolean>(false);
 
 const firstDayOfWeek = computed<WeekDayValue>(() => userStore.currentUserFirstDayOfWeek);
 const fiscalYearStart = computed<number>(() => userStore.currentUserFiscalYearStart);
@@ -417,7 +466,21 @@ const displayQueryDateRangeName = computed<string>(() => formatDateRange(current
 const displayQueryStartTime = computed<string>(() => formatDateTimeToLongDateTime(parseDateTimeFromUnixTime(currentFilter.value.startTime)));
 const displayQueryEndTime = computed<string>(() => formatDateTimeToLongDateTime(parseDateTimeFromUnixTime(currentFilter.value.endTime)));
 
+const isSnapshotMode = computed<boolean>(() => explorersStore.snapshotMode);
+const currentSnapshot = computed(() => explorersStore.currentSnapshot);
+const snapshotFrozenTimeText = computed<string>(() => {
+    if (!currentSnapshot.value) {
+        return '';
+    }
+
+    return formatDateTimeToLongDateTime(parseDateTimeFromUnixTime(currentSnapshot.value.createdUnixTime));
+});
+
 const isCurrentExplorationModified = computed<boolean>(() => {
+    if (isSnapshotMode.value) {
+        return false;
+    }
+
     if (!currentExploration.value.id) { // Add
         return !!initExploration.value && !isEquals(currentExploration.value.toCreateRequest(clientSessionId.value), initExploration.value.toCreateRequest(clientSessionId.value));
     } else { // Edit
@@ -447,6 +510,13 @@ function getFilterLinkUrl(): string {
 }
 
 function init(initProps: InsightsExplorerProps): void {
+    if (isSnapshotMode.value) {
+        // Route parameters in snapshot mode reflect the frozen state, no live data should be loaded
+        loading.value = false;
+        initing.value = false;
+        return;
+    }
+
     clientSessionId.value = generateRandomUUID();
 
     const filter: TransactionExplorerPartialFilter = {
@@ -884,6 +954,10 @@ function onImportQueries(data: string): boolean {
 }
 
 function onShowTransaction(transaction: TransactionInsightDataItem): void {
+    if (isSnapshotMode.value) {
+        return;
+    }
+
     editDialog.value?.open({
         id: transaction.id,
         currentTransaction: Transaction.of(transaction)
@@ -906,6 +980,130 @@ function onUpdateTransactions(): void {
 
 function onShowDateRangeError(message: string): void {
     snackbar.value?.showError(message);
+}
+
+function getDefaultSnapshotName(): string {
+    const explorationName = currentExploration.value.name || tt('Untitled Exploration');
+    return `${explorationName} · ${formatDateTimeToLongDateTime(parseDateTimeFromUnixTime(getCurrentUnixTime()))}`;
+}
+
+function archiveCurrentSnapshot(): void {
+    renameDialog.value?.open(getDefaultSnapshotName(), tt('Archive Current View')).then((newName: string) => {
+        updating.value = true;
+
+        explorersStore.archiveCurrentSnapshot(newName).then(() => {
+            updating.value = false;
+            snackbar.value?.showMessage('Snapshot archived successfully');
+        }).catch(error => {
+            updating.value = false;
+
+            if (!error.processed) {
+                snackbar.value?.showError(error);
+            }
+        });
+    });
+}
+
+function openSnapshotList(): void {
+    snapshotListDialog.value?.open(isSnapshotMode.value ? undefined : (currentExploration.value.id || undefined));
+}
+
+function onViewSnapshot(snapshotId: string): void {
+    loading.value = true;
+    isCurrentDataTableEditable.value = false;
+
+    explorersStore.enterSnapshotMode({
+        snapshotId: snapshotId
+    }).then(() => {
+        loading.value = false;
+        initExploration.value = InsightsExplorer.of(currentExploration.value);
+        router.push(getFilterLinkUrl());
+    }).catch(error => {
+        loading.value = false;
+
+        if (!error.processed) {
+            snackbar.value?.showError(error);
+        }
+    });
+}
+
+function onCompareSnapshot(snapshotId: string): void {
+    isCurrentDataTableEditable.value = false;
+
+    if (isSnapshotMode.value && currentSnapshot.value?.id === snapshotId) {
+        compareCurrentSnapshot();
+        return;
+    }
+
+    loading.value = true;
+
+    explorersStore.enterSnapshotMode({
+        snapshotId: snapshotId
+    }).then(() => {
+        compareCurrentSnapshot();
+    }).catch(error => {
+        loading.value = false;
+
+        if (!error.processed) {
+            snackbar.value?.showError(error);
+        }
+    });
+}
+
+function compareCurrentSnapshot(): void {
+    comparing.value = true;
+    loading.value = true;
+
+    explorersStore.calculateCurrentSnapshotDifference().then((difference: SnapshotDifference) => {
+        comparing.value = false;
+        loading.value = false;
+        snapshotDiffDialog.value?.open(difference);
+    }).catch(error => {
+        comparing.value = false;
+        loading.value = false;
+
+        if (!error.processed) {
+            snackbar.value?.showError(error);
+        }
+    });
+}
+
+function exitSnapshotView(): void {
+    const previousExplorationId = explorersStore.snapshotModePreviousExplorationId;
+    const frozenFilter = {
+        dateRangeType: currentFilter.value.dateRangeType,
+        startTime: currentFilter.value.startTime,
+        endTime: currentFilter.value.endTime
+    };
+
+    explorersStore.exitSnapshotMode();
+    isCurrentDataTableEditable.value = false;
+    explorersStore.initTransactionExplorerFilter({
+        dateRangeType: frozenFilter.dateRangeType,
+        startTime: frozenFilter.startTime,
+        endTime: frozenFilter.endTime
+    }, false);
+    loading.value = true;
+
+    if (previousExplorationId) {
+        explorersStore.getExploration({
+            explorationId: previousExplorationId
+        }).then(exploration => {
+            explorersStore.updateCurrentExploration(exploration);
+            initExploration.value = InsightsExplorer.of(exploration);
+            reload(false);
+            router.push(getFilterLinkUrl());
+        }).catch(() => {
+            // The previous exploration may have been deleted while viewing the snapshot
+            initExploration.value = InsightsExplorer.of(explorersStore.currentExploration);
+            reload(false);
+            router.push(getFilterLinkUrl());
+        });
+    } else {
+        initExploration.value = InsightsExplorer.of(explorersStore.currentExploration);
+        reload(false);
+        router.push(getFilterLinkUrl());
+    }
 }
 
 onBeforeRouteUpdate((to) => {

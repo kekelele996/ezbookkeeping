@@ -145,6 +145,11 @@ import type {
     InsightsExplorerInfoResponse,
 } from '@/models/explorer.ts';
 import type {
+    InsightsExplorerSnapshotCreateRequest,
+    InsightsExplorerSnapshotDeleteRequest,
+    InsightsExplorerSnapshotInfoResponse,
+} from '@/models/explorer_snapshot.ts';
+import type {
     TokenGenerateAPIRequest,
     TokenGenerateMCPRequest,
     TokenRevokeRequest,
@@ -891,6 +896,23 @@ export default {
     },
     deleteExploration: (req: InsightsExplorerDeleteRequest): ApiResponsePromise<boolean> => {
         return axios.post<ApiResponse<boolean>>('v1/insights/explorers/delete.json', req);
+    },
+
+    getExplorerSnapshots: (explorerId?: string): ApiResponsePromise<InsightsExplorerSnapshotInfoResponse[]> => {
+        const query = explorerId ? '?explorerId=' + explorerId : '';
+        return axios.get<ApiResponse<InsightsExplorerSnapshotInfoResponse[]>>('v1/insights/explorer_snapshots/list.json' + query);
+    },
+
+    getExplorerSnapshot: ({ id }: { id: string }): ApiResponsePromise<InsightsExplorerSnapshotInfoResponse> => {
+        return axios.get<ApiResponse<InsightsExplorerSnapshotInfoResponse>>('v1/insights/explorer_snapshots/get.json?id=' + id);
+    },
+
+    addExplorerSnapshot: (req: InsightsExplorerSnapshotCreateRequest): ApiResponsePromise<InsightsExplorerSnapshotInfoResponse> => {
+        return axios.post<ApiResponse<InsightsExplorerSnapshotInfoResponse>>('v1/insights/explorer_snapshots/add.json', req);
+    },
+
+    deleteExplorerSnapshot: (req: InsightsExplorerSnapshotDeleteRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/insights/explorer_snapshots/delete.json', req);
     },
     recognizeTransactionText: ({ text }: { text: string }): ApiResponsePromise<RecognizedTransactionResponse> => {
         return axios.post<ApiResponse<RecognizedTransactionResponse>>('v1/llm/transactions/recognize_text.json', {
